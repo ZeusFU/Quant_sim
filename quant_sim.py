@@ -1,3 +1,5 @@
+Python 3.13.1 (v3.13.1:06714517797, Dec  3 2024, 14:00:22) [Clang 15.0.0 (clang-1500.3.9.4)] on darwin
+Type "help", "copyright", "credits" or "license()" for more information.
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -308,610 +310,607 @@ if uploaded_file is not None:
                 return ret.mean() / ret.std() * np.sqrt(252)
             return 0
             
+
         def profit_factor_func(data):
             profit = data[data['Realized Profit'] > 0]['Realized Profit'].sum()
-            loss = abs
+            loss = abs(data[data['Realized Profit'] < 0]['Realized Profit'].sum())
+            return profit / loss if loss > 0 else float('inf')
 
-def profit_factor_func(data):
-    profit = data[data['Realized Profit'] > 0]['Realized Profit'].sum()
-    loss = abs(data[data['Realized Profit'] < 0]['Realized Profit'].sum())
-    return profit / loss if loss > 0 else float('inf')
+        def win_rate_func(data):
+            winning_trades = len(data[data['Realized Profit'] > 0])
+            total_trades = len(data)
+            return winning_trades / total_trades * 100 if total_trades > 0 else 0
 
-def win_rate_func(data):
-    winning_trades = len(data[data['Realized Profit'] > 0])
-    total_trades = len(data)
-    return winning_trades / total_trades * 100 if total_trades > 0 else 0
+        # Perform bootstrap analysis if enough data
+        if len(df) >= 30:
+            try:
+                sharpe_ci = bootstrap_metric(df, sharpe_func, n_bootstrap=500)
+                profit_factor_ci = bootstrap_metric(df, profit_factor_func, n_bootstrap=500)
+                win_rate_ci = bootstrap_metric(df, win_rate_func, n_bootstrap=500)
+                has_bootstrap_analysis = True
+            except Exception as e:
+                st.warning(f"Could not perform bootstrap analysis: {e}")
+                has_bootstrap_analysis = False
+        else:
+            has_bootstrap_analysis = False
+            st.warning("Insufficient data for bootstrap analysis (need at least 30 trades)")
 
-# Perform bootstrap analysis if enough data
-if len(df) >= 30:
-    try:
-        sharpe_ci = bootstrap_metric(df, sharpe_func, n_bootstrap=500)
-        profit_factor_ci = bootstrap_metric(df, profit_factor_func, n_bootstrap=500)
-        win_rate_ci = bootstrap_metric(df, win_rate_func, n_bootstrap=500)
-        has_bootstrap_analysis = True
-    except Exception as e:
-        st.warning(f"Could not perform bootstrap analysis: {e}")
-        has_bootstrap_analysis = False
-else:
-    has_bootstrap_analysis = False
-    st.warning("Insufficient data for bootstrap analysis (need at least 30 trades)")
-
-# Monte Carlo simulation for strategy robustness
-def monte_carlo_sim(returns, n_simulations=1000, n_periods=252):
-    """Simulate future performance paths based on historical returns distribution"""
-    simulations = np.zeros((n_simulations, n_periods))
-    
-    for i in range(n_simulations):
-        # Generate random returns by sampling from historical returns with replacement
-        rand_returns = np.random.choice(returns, size=n_periods, replace=True)
-        
-        # Calculate cumulative returns path
-        cumulative_returns = np.cumprod(1 + rand_returns) - 1
-        simulations[i] = cumulative_returns
-    
-    return simulations
-
-if len(returns) >= 30:
-    try:
-        # Run Monte Carlo simulation
-        mc_simulations = monte_carlo_sim(returns, n_simulations=500, n_periods=252)
-        
-        # Calculate statistics from simulations
-        final_returns = mc_simulations[:, -1]  # Last period of each simulation
-        mc_mean = np.mean(final_returns)
-        mc_median = np.median(final_returns)
-        mc_5th_percentile = np.percentile(final_returns, 5)
-        mc_95th_percentile = np.percentile(final_returns, 95)
-        
-        has_monte_carlo = True
-    except Exception as e:
-        st.warning(f"Could not perform Monte Carlo simulation: {e}")
-        has_monte_carlo = False
-else:
-    has_monte_carlo = False
-    st.warning("Insufficient data for Monte Carlo simulation (need at least 30 trades)")
-
-# Walk-forward analysis
-def walk_forward_analysis(returns, window_size=30, step_size=10):
-    """Perform walk-forward analysis to test strategy consistency"""
-    if len(returns) < window_size * 2:
-        return None, None
-        
-    n_windows = (len(returns) - window_size * 2) // step_size + 1
-    if n_windows <= 0:
-        return None, None
-        
-    train_sharpes = []
-    test_sharpes = []
-    
-    for i in range(n_windows):
-        start_idx = i * step_size
-        train_end = start_idx + window_size
-        test_end = train_end + window_size
-        
-        train_returns = returns[start_idx:train_end]
-        test_returns = returns[train_end:test_end]
-        
-        # Calculate Sharpe for train and test
-        train_sharpe = train_returns.mean() / train_returns.std() * np.sqrt(252) if train_returns.std() > 0 else 0
-        test_sharpe = test_returns.mean() / test_returns.std() * np.sqrt(252) if test_returns.std() > 0 else 0
-        
-        train_sharpes.append(train_sharpe)
-        test_sharpes.append(test_sharpe)
-    
-    return train_sharpes, test_sharpes
-
-if len(returns) >= 60:  # Need at least 2 windows
-    try:
-        train_sharpes, test_sharpes = walk_forward_analysis(returns)
-        
-        if train_sharpes is not None and test_sharpes is not None:
-            # Calculate correlation between train and test performance
-            wf_correlation = np.corrcoef(train_sharpes, test_sharpes)[0, 1] if len(train_sharpes) > 1 else 0
+        # Monte Carlo simulation for strategy robustness
+        def monte_carlo_sim(returns, n_simulations=1000, n_periods=252):
+            """Simulate future performance paths based on historical returns distribution"""
+            simulations = np.zeros((n_simulations, n_periods))
             
-            # Calculate average performance degradation
-            wf_degradation = np.mean(np.array(test_sharpes) - np.array(train_sharpes))
+            for i in range(n_simulations):
+                # Generate random returns by sampling from historical returns with replacement
+                rand_returns = np.random.choice(returns, size=n_periods, replace=True)
+                
+                # Calculate cumulative returns path
+                cumulative_returns = np.cumprod(1 + rand_returns) - 1
+                simulations[i] = cumulative_returns
             
-            has_walk_forward = True
+            return simulations
+
+        if len(returns) >= 30:
+            try:
+                # Run Monte Carlo simulation
+                mc_simulations = monte_carlo_sim(returns, n_simulations=500, n_periods=252)
+                
+                # Calculate statistics from simulations
+                final_returns = mc_simulations[:, -1]  # Last period of each simulation
+                mc_mean = np.mean(final_returns)
+                mc_median = np.median(final_returns)
+                mc_5th_percentile = np.percentile(final_returns, 5)
+                mc_95th_percentile = np.percentile(final_returns, 95)
+                
+                has_monte_carlo = True
+            except Exception as e:
+                st.warning(f"Could not perform Monte Carlo simulation: {e}")
+                has_monte_carlo = False
+        else:
+            has_monte_carlo = False
+            st.warning("Insufficient data for Monte Carlo simulation (need at least 30 trades)")
+
+        # Walk-forward analysis
+        def walk_forward_analysis(returns, window_size=30, step_size=10):
+            """Perform walk-forward analysis to test strategy consistency"""
+            if len(returns) < window_size * 2:
+                return None, None
+                
+            n_windows = (len(returns) - window_size * 2) // step_size + 1
+            if n_windows <= 0:
+                return None, None
+                
+            train_sharpes = []
+            test_sharpes = []
+            
+            for i in range(n_windows):
+                start_idx = i * step_size
+                train_end = start_idx + window_size
+                test_end = train_end + window_size
+                
+                train_returns = returns[start_idx:train_end]
+                test_returns = returns[train_end:test_end]
+                
+                # Calculate Sharpe for train and test
+                train_sharpe = train_returns.mean() / train_returns.std() * np.sqrt(252) if train_returns.std() > 0 else 0
+                test_sharpe = test_returns.mean() / test_returns.std() * np.sqrt(252) if test_returns.std() > 0 else 0
+                
+                train_sharpes.append(train_sharpe)
+                test_sharpes.append(test_sharpe)
+            
+            return train_sharpes, test_sharpes
+
+        if len(returns) >= 60:  # Need at least 2 windows
+            try:
+                train_sharpes, test_sharpes = walk_forward_analysis(returns)
+                
+                if train_sharpes is not None and test_sharpes is not None:
+                    # Calculate correlation between train and test performance
+                    wf_correlation = np.corrcoef(train_sharpes, test_sharpes)[0, 1] if len(train_sharpes) > 1 else 0
+                    
+                    # Calculate average performance degradation
+                    wf_degradation = np.mean(np.array(test_sharpes) - np.array(train_sharpes))
+                    
+                    has_walk_forward = True
+                else:
+                    has_walk_forward = False
+            except Exception as e:
+                st.warning(f"Could not perform walk-forward analysis: {e}")
+                has_walk_forward = False
         else:
             has_walk_forward = False
-    except Exception as e:
-        st.warning(f"Could not perform walk-forward analysis: {e}")
-        has_walk_forward = False
-else:
-    has_walk_forward = False
-    st.warning("Insufficient data for walk-forward analysis (need at least 60 trades)")
+            st.warning("Insufficient data for walk-forward analysis (need at least 60 trades)")
 
-# Display key metrics with confidence intervals
-st.subheader("Key Performance Metrics")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Total Trades", total_trades)
-    st.metric("Winning Trades", f"{winning_trades} ({win_rate:.2f}%)")
-    if has_bootstrap_analysis:
-        st.write(f"Win Rate CI: [{win_rate_ci[0]:.2f}%, {win_rate_ci[2]:.2f}%]")
-    st.metric("Average Profit per Trade", f"{average_profit_per_trade:.8f}")
-with col2:
-    st.metric("Net Profit", f"{net_profit:.8f}")
-    st.metric("Profit Factor", f"{profit_factor:.2f}")
-    if has_bootstrap_analysis:
-        st.write(f"Profit Factor CI: [{profit_factor_ci[0]:.2f}, {profit_factor_ci[2]:.2f}]")
-    st.metric("Total Fees Paid", f"{total_fees:.8f}")
-with col3:
-    st.metric("Max Drawdown", f"{max_drawdown:.8f}")
-    st.metric("Avg Drawdown Duration", f"{avg_drawdown_duration:.2f} days")
-    st.metric("Max Drawdown Duration", f"{max_drawdown_duration:.2f} days")
+        # Display key metrics with confidence intervals
+        st.subheader("Key Performance Metrics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Trades", total_trades)
+            st.metric("Winning Trades", f"{winning_trades} ({win_rate:.2f}%)")
+            if has_bootstrap_analysis:
+                st.write(f"Win Rate CI: [{win_rate_ci[0]:.2f}%, {win_rate_ci[2]:.2f}%]")
+            st.metric("Average Profit per Trade", f"{average_profit_per_trade:.8f}")
+        with col2:
+            st.metric("Net Profit", f"{net_profit:.8f}")
+            st.metric("Profit Factor", f"{profit_factor:.2f}")
+            if has_bootstrap_analysis:
+                st.write(f"Profit Factor CI: [{profit_factor_ci[0]:.2f}, {profit_factor_ci[2]:.2f}]")
+            st.metric("Total Fees Paid", f"{total_fees:.8f}")
+        with col3:
+            st.metric("Max Drawdown", f"{max_drawdown:.8f}")
+            st.metric("Avg Drawdown Duration", f"{avg_drawdown_duration:.2f} days")
+            st.metric("Max Drawdown Duration", f"{max_drawdown_duration:.2f} days")
 
-# Display advanced risk metrics
-st.subheader("Advanced Risk Metrics")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Sharpe Ratio (Annualized)", f"{sharpe_ratio:.2f}")
-    if has_bootstrap_analysis:
-        st.write(f"Sharpe Ratio CI: [{sharpe_ci[0]:.2f}, {sharpe_ci[2]:.2f}]")
-with col2:
-    st.metric("Sortino Ratio (Annualized)", f"{sortino_ratio:.2f}")
-    st.metric("Calmar Ratio", f"{calmar_ratio:.2f}")
-with col3:
-    st.metric("Expected Shortfall (5%)", f"{expected_shortfall:.4f}")
-    st.metric("Omega Ratio", f"{omega:.2f}")
+        # Display advanced risk metrics
+        st.subheader("Advanced Risk Metrics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Sharpe Ratio (Annualized)", f"{sharpe_ratio:.2f}")
+            if has_bootstrap_analysis:
+                st.write(f"Sharpe Ratio CI: [{sharpe_ci[0]:.2f}, {sharpe_ci[2]:.2f}]")
+        with col2:
+            st.metric("Sortino Ratio (Annualized)", f"{sortino_ratio:.2f}")
+            st.metric("Calmar Ratio", f"{calmar_ratio:.2f}")
+        with col3:
+            st.metric("Expected Shortfall (5%)", f"{expected_shortfall:.4f}")
+            st.metric("Omega Ratio", f"{omega:.2f}")
 
-# Display higher-order moments
-st.subheader("Distribution Characteristics")
-col1, col2 = st.columns(2)
-with col1:
-    st.metric("Skewness of Returns", f"{returns_skew:.2f}")
-    skew_interpretation = "Positive skew (favorable)" if returns_skew > 0.2 else "Negative skew (unfavorable)" if returns_skew < -0.2 else "Approximately symmetric"
-    st.write(f"Interpretation: {skew_interpretation}")
-with col2:
-    st.metric("Kurtosis of Returns", f"{returns_kurt:.2f}")
-    kurt_interpretation = "Fat tails (high tail risk)" if returns_kurt > 3 else "Normal tails"
-    st.write(f"Interpretation: {kurt_interpretation}")
+        # Display higher-order moments
+        st.subheader("Distribution Characteristics")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Skewness of Returns", f"{returns_skew:.2f}")
+            skew_interpretation = "Positive skew (favorable)" if returns_skew > 0.2 else "Negative skew (unfavorable)" if returns_skew < -0.2 else "Approximately symmetric"
+            st.write(f"Interpretation: {skew_interpretation}")
+        with col2:
+            st.metric("Kurtosis of Returns", f"{returns_kurt:.2f}")
+            kurt_interpretation = "Fat tails (high tail risk)" if returns_kurt > 3 else "Normal tails"
+            st.write(f"Interpretation: {kurt_interpretation}")
 
-# Visualizations
-st.subheader("Time Series Analysis")
+        # Visualizations
+        st.subheader("Time Series Analysis")
 
-# Plot cumulative profit over time with drawdowns highlighted
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.plot(df['Time(UTC)'], df['Cumulative Profit'], label='Cumulative Profit')
-
-# Highlight drawdown periods
-for period in drawdown_periods:
-    start, end, duration = period
-    ax.axvspan(start, end, alpha=0.2, color='red')
-
-ax.set_title('Cumulative Profit Over Time with Drawdown Periods')
-ax.set_xlabel('Time')
-ax.set_ylabel('Cumulative Profit')
-ax.legend()
-ax.grid(True)
-st.pyplot(fig)
-
-# Plot returns distribution with normal and t-distribution fits
-if len(returns) > 0:
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Plot histogram of returns
-    sns.histplot(returns, bins=30, kde=True, ax=ax)
-    
-    # Fit normal distribution
-    x = np.linspace(returns.min(), returns.max(), 100)
-    mu, sigma = norm.fit(returns)
-    y_norm = norm.pdf(x, mu, sigma)
-    ax.plot(x, y_norm * len(returns) * (returns.max() - returns.min()) / 30, 'r-', 
-            linewidth=2, label=f'Normal: μ={mu:.4f}, σ={sigma:.4f}')
-    
-    # Fit t-distribution
-    df_t, loc_t, scale_t = t.fit(returns)
-    y_t = t.pdf(x, df_t, loc=loc_t, scale=scale_t)
-    ax.plot(x, y_t * len(returns) * (returns.max() - returns.min()) / 30, 'g--', 
-            linewidth=2, label=f't-dist: ν={df_t:.2f}, loc={loc_t:.4f}, scale={scale_t:.4f}')
-    
-    ax.set_title('Returns Distribution with Fitted Distributions')
-    ax.legend()
-    st.pyplot(fig)
-
-# Show autocorrelation if available
-if has_autocorr_analysis:
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(range(len(autocorr)), autocorr)
-    ax.axhline(y=0, linestyle='-', color='black')
-    ax.axhline(y=1.96/np.sqrt(len(returns)), linestyle='--', color='red')
-    ax.axhline(y=-1.96/np.sqrt(len(returns)), linestyle='--', color='red')
-    ax.set_title('Autocorrelation of Returns')
-    ax.set_xlabel('Lag')
-    ax.set_ylabel('Correlation')
-    st.pyplot(fig)
-
-# Display regime analysis if available
-if has_regime_analysis:
-    st.subheader("Market Regime Analysis")
-    
-    # Display regime statistics
-    st.write("Performance across different market regimes:")
-    st.dataframe(regime_stats)
-    
-    # Plot regime probabilities
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(daily_returns['Date'], regime_1_prob)
-    ax.set_title('Probability of Regime 1 Over Time')
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Probability')
-    ax.grid(True)
-    st.pyplot(fig)
-    
-    # Plot returns by regime
-    fig, ax = plt.subplots(figsize=(10, 6))
-    for regime in daily_returns['Regime'].unique():
-        regime_data = daily_returns[daily_returns['Regime'] == regime]
-        label = f"Regime {regime}: μ={regime_data['Return'].mean():.4f}, σ={regime_data['Return'].std():.4f}"
-        sns.histplot(regime_data['Return'], label=label, alpha=0.6, ax=ax)
-    ax.set_title('Returns Distribution by Market Regime')
-    ax.legend()
-    st.pyplot(fig)
-
-# Display GARCH analysis if available
-if has_garch_analysis:
-    st.subheader("Volatility Analysis (GARCH)")
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(daily_returns['Date'], conditional_vol)
-    ax.set_title('Conditional Volatility Over Time (GARCH Model)')
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Volatility')
-    ax.grid(True)
-    st.pyplot(fig)
-    
-    # Plot volatility-adjusted returns vs raw returns
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
-    ax1.plot(daily_returns['Date'], daily_returns['Return'])
-    ax1.set_title('Raw Returns')
-    ax1.grid(True)
-    
-    ax2.plot(daily_returns['Date'], daily_returns['Vol_Adjusted_Return'])
-    ax2.set_title('Volatility-Adjusted Returns')
-    ax2.grid(True)
-    
-    plt.tight_layout()
-    st.pyplot(fig)
-
-# Display outlier analysis if available
-if has_outlier_analysis:
-    st.subheader("Outlier Analysis")
-    
-    st.write(f"Detected {len(outlier_trades)} outlier trades out of {len(df)} total trades.")
-    
-    if len(outlier_trades) > 0:
-        st.write("Outlier trades statistics:")
-        outlier_stats = outlier_trades.describe()
-        st.dataframe(outlier_stats)
-        
+        # Plot cumulative profit over time with drawdowns highlighted
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.scatter(df[df['Outlier'] == 1]['Realized Profit'], df[df['Outlier'] == 1]['Quantity'], 
-                 label='Normal', alpha=0.5)
-        ax.scatter(outlier_trades['Realized Profit'], outlier_trades['Quantity'],
-                 label='Outliers', color='red', alpha=0.5)
-        ax.set_title('Outlier Trades Detection')
-        ax.set_xlabel('Realized Profit')
-        ax.set_ylabel('Quantity')
+        ax.plot(df['Time(UTC)'], df['Cumulative Profit'], label='Cumulative Profit')
+
+        # Highlight drawdown periods
+        for period in drawdown_periods:
+            start, end, duration = period
+            ax.axvspan(start, end, alpha=0.2, color='red')
+
+        ax.set_title('Cumulative Profit Over Time with Drawdown Periods')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Cumulative Profit')
         ax.legend()
         ax.grid(True)
         st.pyplot(fig)
 
-# Display clustering analysis if available
-if has_cluster_analysis:
-    st.subheader("Trade Clustering Analysis")
-    
-    st.write(f"Identified {n_clusters} distinct trade clusters plus noise points.")
-    
-    # Calculate cluster statistics
-    cluster_stats = df.groupby('Cluster').agg({
-        'Realized Profit': ['count', 'mean', 'sum', 'std'],
-        'Return': ['mean', 'std'],
-        'Quantity': 'mean',
-        'Price': 'mean'
-    })
-    
-    st.write("Cluster statistics:")
-    st.dataframe(cluster_stats)
-    
-    # Visualize clusters
-    if len(features_available) >= 2:
-        # Use PCA for dimension reduction if more than 2 features
-        if len(features_available) > 2:
-            pca = PCA(n_components=2)
-            reduced_features = pca.fit_transform(scaled_features)
-            x_label = 'PCA Component 1'
-            y_label = 'PCA Component 2'
-        else:
-            reduced_features = scaled_features
-            x_label = features_available[0]
-            y_label = features_available[1]
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-       # Plot each cluster
-        for cluster in sorted(df['Cluster'].unique()):
-            cluster_data = df[df['Cluster'] == cluster]
-            cluster_points = reduced_features[df['Cluster'] == cluster]
-            if cluster == -1:
-                # Noise points in black
-                ax.scatter(cluster_points[:, 0], cluster_points[:, 1], c='black', s=30, alpha=0.5, label='Noise')
-            else:
-                ax.scatter(cluster_points[:, 0], cluster_points[:, 1], s=30, alpha=0.7, 
-                           label=f'Cluster {cluster} (n={len(cluster_data)})')
-        
-        ax.set_title('Trade Clusters Visualization')
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
-        ax.legend()
-        ax.grid(True)
-        st.pyplot(fig)
+        # Plot returns distribution with normal and t-distribution fits
+        if len(returns) > 0:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Plot histogram of returns
+            sns.histplot(returns, bins=30, kde=True, ax=ax)
+            
+            # Fit normal distribution
+            x = np.linspace(returns.min(), returns.max(), 100)
+            mu, sigma = norm.fit(returns)
+            y_norm = norm.pdf(x, mu, sigma)
+            ax.plot(x, y_norm * len(returns) * (returns.max() - returns.min()) / 30, 'r-', 
+                    linewidth=2, label=f'Normal: μ={mu:.4f}, σ={sigma:.4f}')
+            
+            # Fit t-distribution
+            df_t, loc_t, scale_t = t.fit(returns)
+            y_t = t.pdf(x, df_t, loc=loc_t, scale=scale_t)
+            ax.plot(x, y_t * len(returns) * (returns.max() - returns.min()) / 30, 'g--', 
+                    linewidth=2, label=f't-dist: ν={df_t:.2f}, loc={loc_t:.4f}, scale={scale_t:.4f}')
+            
+            ax.set_title('Returns Distribution with Fitted Distributions')
+            ax.legend()
+            st.pyplot(fig)
 
-# Display Monte Carlo simulation if available
-if has_monte_carlo:
-    st.subheader("Monte Carlo Simulation")
-    
-    # Plot simulation paths
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Plot a sample of simulation paths
-    for i in range(min(100, mc_simulations.shape[0])):
-        ax.plot(mc_simulations[i], alpha=0.1, color='blue')
-    
-    # Plot mean path
-    ax.plot(np.mean(mc_simulations, axis=0), color='red', linewidth=2, label='Mean Path')
-    
-    # Plot percentiles
-    ax.plot(np.percentile(mc_simulations, 5, axis=0), color='green', linewidth=1.5, label='5th Percentile')
-    ax.plot(np.percentile(mc_simulations, 95, axis=0), color='green', linewidth=1.5, label='95th Percentile')
-    
-    ax.set_title('Monte Carlo Simulation of Future Returns (1 Year)')
-    ax.set_xlabel('Trading Days')
-    ax.set_ylabel('Cumulative Return')
-    ax.legend()
-    ax.grid(True)
-    st.pyplot(fig)
-    
-    # Display Monte Carlo statistics
-    st.write("Monte Carlo Simulation Statistics (1 Year Horizon):")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Mean Projected Return", f"{mc_mean:.2%}")
-        st.metric("Median Projected Return", f"{mc_median:.2%}")
-    with col2:
-        st.metric("5th Percentile Return", f"{mc_5th_percentile:.2%}")
-        st.metric("95th Percentile Return", f"{mc_95th_percentile:.2%}")
+        # Show autocorrelation if available
+        if has_autocorr_analysis:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.bar(range(len(autocorr)), autocorr)
+            ax.axhline(y=0, linestyle='-', color='black')
+            ax.axhline(y=1.96/np.sqrt(len(returns)), linestyle='--', color='red')
+            ax.axhline(y=-1.96/np.sqrt(len(returns)), linestyle='--', color='red')
+            ax.set_title('Autocorrelation of Returns')
+            ax.set_xlabel('Lag')
+            ax.set_ylabel('Correlation')
+            st.pyplot(fig)
 
-# Display Walk-Forward Analysis if available
-if has_walk_forward:
-    st.subheader("Walk-Forward Analysis")
-    
-    # Plot training vs testing Sharpe ratios
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    indices = np.arange(len(train_sharpes))
-    width = 0.35
-    
-    ax.bar(indices - width/2, train_sharpes, width, label='Training Window')
-    ax.bar(indices + width/2, test_sharpes, width, label='Testing Window')
-    
-    ax.set_title('Walk-Forward Analysis: Sharpe Ratio Consistency')
-    ax.set_xlabel('Window')
-    ax.set_ylabel('Sharpe Ratio')
-    ax.axhline(y=0, color='k', linestyle='--', alpha=0.3)
-    ax.legend()
-    ax.grid(True)
-    st.pyplot(fig)
-    
-    # Display correlation and degradation
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Train-Test Correlation", f"{wf_correlation:.2f}")
-        correlation_interpretation = "Strong consistency" if wf_correlation > 0.7 else "Moderate consistency" if wf_correlation > 0.3 else "Poor consistency"
-        st.write(f"Interpretation: {correlation_interpretation}")
-    with col2:
-        st.metric("Performance Degradation", f"{wf_degradation:.2f}")
-        degradation_interpretation = "No degradation" if wf_degradation >= 0 else "Moderate degradation" if wf_degradation > -0.5 else "Severe degradation"
-        st.write(f"Interpretation: {degradation_interpretation}")
+        # Display regime analysis if available
+        if has_regime_analysis:
+            st.subheader("Market Regime Analysis")
+            
+            # Display regime statistics
+            st.write("Performance across different market regimes:")
+            st.dataframe(regime_stats)
+            
+            # Plot regime probabilities
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(daily_returns['Date'], regime_1_prob)
+            ax.set_title('Probability of Regime 1 Over Time')
+            ax.set_xlabel('Date')
+            ax.set_ylabel('Probability')
+            ax.grid(True)
+            st.pyplot(fig)
+            
+            # Plot returns by regime
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for regime in daily_returns['Regime'].unique():
+                regime_data = daily_returns[daily_returns['Regime'] == regime]
+                label = f"Regime {regime}: μ={regime_data['Return'].mean():.4f}, σ={regime_data['Return'].std():.4f}"
+                sns.histplot(regime_data['Return'], label=label, alpha=0.6, ax=ax)
+            ax.set_title('Returns Distribution by Market Regime')
+            ax.legend()
+            st.pyplot(fig)
 
-# Advanced trading metrics
-st.subheader("Advanced Trading Insights")
+        # Display GARCH analysis if available
+        if has_garch_analysis:
+            st.subheader("Volatility Analysis (GARCH)")
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(daily_returns['Date'], conditional_vol)
+            ax.set_title('Conditional Volatility Over Time (GARCH Model)')
+            ax.set_xlabel('Date')
+            ax.set_ylabel('Volatility')
+            ax.grid(True)
+            st.pyplot(fig)
+            
+            # Plot volatility-adjusted returns vs raw returns
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
+            ax1.plot(daily_returns['Date'], daily_returns['Return'])
+            ax1.set_title('Raw Returns')
+            ax1.grid(True)
+            
+            ax2.plot(daily_returns['Date'], daily_returns['Vol_Adjusted_Return'])
+            ax2.set_title('Volatility-Adjusted Returns')
+            ax2.grid(True)
+            
+            plt.tight_layout()
+            st.pyplot(fig)
 
-# Calculate Kelly criterion
-def kelly_criterion(mean_return, variance):
-    """Calculate optimal Kelly fraction"""
-    if variance == 0:
-        return 0
-    return mean_return / variance
+        # Display outlier analysis if available
+        if has_outlier_analysis:
+            st.subheader("Outlier Analysis")
+            
+            st.write(f"Detected {len(outlier_trades)} outlier trades out of {len(df)} total trades.")
+            
+            if len(outlier_trades) > 0:
+                st.write("Outlier trades statistics:")
+                outlier_stats = outlier_trades.describe()
+                st.dataframe(outlier_stats)
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.scatter(df[df['Outlier'] == 1]['Realized Profit'], df[df['Outlier'] == 1]['Quantity'], 
+                         label='Normal', alpha=0.5)
+                ax.scatter(outlier_trades['Realized Profit'], outlier_trades['Quantity'],
+                         label='Outliers', color='red', alpha=0.5)
+                ax.set_title('Outlier Trades Detection')
+                ax.set_xlabel('Realized Profit')
+                ax.set_ylabel('Quantity')
+                ax.legend()
+                ax.grid(True)
+                st.pyplot(fig)
 
-kelly_fraction = kelly_criterion(returns.mean(), returns.var())
-kelly_fraction_adj = kelly_fraction * 0.5  # Conservative adjustment
+        # Display clustering analysis if available
+        if has_cluster_analysis:
+            st.subheader("Trade Clustering Analysis")
+            
+            st.write(f"Identified {n_clusters} distinct trade clusters plus noise points.")
+            
+            # Calculate cluster statistics
+            cluster_stats = df.groupby('Cluster').agg({
+                'Realized Profit': ['count', 'mean', 'sum', 'std'],
+                'Return': ['mean', 'std'],
+                'Quantity': 'mean',
+                'Price': 'mean'
+            })
+            
+            st.write("Cluster statistics:")
+            st.dataframe(cluster_stats)
+            
+            # Visualize clusters
+            if len(features_available) >= 2:
+                # Use PCA for dimension reduction if more than 2 features
+                if len(features_available) > 2:
+                    pca = PCA(n_components=2)
+                    reduced_features = pca.fit_transform(scaled_features)
+                    x_label = 'PCA Component 1'
+                    y_label = 'PCA Component 2'
+                else:
+                    reduced_features = scaled_features
+                    x_label = features_available[0]
+                    y_label = features_available[1]
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                
+               # Plot each cluster
+                for cluster in sorted(df['Cluster'].unique()):
+                    cluster_data = df[df['Cluster'] == cluster]
+                    cluster_points = reduced_features[df['Cluster'] == cluster]
+                    if cluster == -1:
+                        # Noise points in black
+                        ax.scatter(cluster_points[:, 0], cluster_points[:, 1], c='black', s=30, alpha=0.5, label='Noise')
+                    else:
+                        ax.scatter(cluster_points[:, 0], cluster_points[:, 1], s=30, alpha=0.7, 
+                                   label=f'Cluster {cluster} (n={len(cluster_data)})')
+                
+                ax.set_title('Trade Clusters Visualization')
+                ax.set_xlabel(x_label)
+                ax.set_ylabel(y_label)
+                ax.legend()
+                ax.grid(True)
+                st.pyplot(fig)
 
-# Maximum consecutive wins and losses
-df['Win'] = df['Realized Profit'] > 0
-win_streaks = []
-loss_streaks = []
-current_streak = 1
+        # Display Monte Carlo simulation if available
+        if has_monte_carlo:
+            st.subheader("Monte Carlo Simulation")
+            
+            # Plot simulation paths
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Plot a sample of simulation paths
+            for i in range(min(100, mc_simulations.shape[0])):
+                ax.plot(mc_simulations[i], alpha=0.1, color='blue')
+            
+            # Plot mean path
+            ax.plot(np.mean(mc_simulations, axis=0), color='red', linewidth=2, label='Mean Path')
+            
+            # Plot percentiles
+            ax.plot(np.percentile(mc_simulations, 5, axis=0), color='green', linewidth=1.5, label='5th Percentile')
+            ax.plot(np.percentile(mc_simulations, 95, axis=0), color='green', linewidth=1.5, label='95th Percentile')
+            
+            ax.set_title('Monte Carlo Simulation of Future Returns (1 Year)')
+            ax.set_xlabel('Trading Days')
+            ax.set_ylabel('Cumulative Return')
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+            
+            # Display Monte Carlo statistics
+            st.write("Monte Carlo Simulation Statistics (1 Year Horizon):")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Mean Projected Return", f"{mc_mean:.2%}")
+                st.metric("Median Projected Return", f"{mc_median:.2%}")
+            with col2:
+                st.metric("5th Percentile Return", f"{mc_5th_percentile:.2%}")
+                st.metric("95th Percentile Return", f"{mc_95th_percentile:.2%}")
 
-for i in range(1, len(df)):
-    if df['Win'].iloc[i] == df['Win'].iloc[i-1]:
-        current_streak += 1
-    else:
-        if df['Win'].iloc[i-1]:
-            win_streaks.append(current_streak)
-        else:
-            loss_streaks.append(current_streak)
+        # Display Walk-Forward Analysis if available
+        if has_walk_forward:
+            st.subheader("Walk-Forward Analysis")
+            
+            # Plot training vs testing Sharpe ratios
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            indices = np.arange(len(train_sharpes))
+            width = 0.35
+            
+            ax.bar(indices - width/2, train_sharpes, width, label='Training Window')
+            ax.bar(indices + width/2, test_sharpes, width, label='Testing Window')
+            
+            ax.set_title('Walk-Forward Analysis: Sharpe Ratio Consistency')
+            ax.set_xlabel('Window')
+            ax.set_ylabel('Sharpe Ratio')
+            ax.axhline(y=0, color='k', linestyle='--', alpha=0.3)
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+            
+            # Display correlation and degradation
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Train-Test Correlation", f"{wf_correlation:.2f}")
+                correlation_interpretation = "Strong consistency" if wf_correlation > 0.7 else "Moderate consistency" if wf_correlation > 0.3 else "Poor consistency"
+                st.write(f"Interpretation: {correlation_interpretation}")
+            with col2:
+                st.metric("Performance Degradation", f"{wf_degradation:.2f}")
+                degradation_interpretation = "No degradation" if wf_degradation >= 0 else "Moderate degradation" if wf_degradation > -0.5 else "Severe degradation"
+                st.write(f"Interpretation: {degradation_interpretation}")
+
+        # Advanced trading metrics
+        st.subheader("Advanced Trading Insights")
+
+        # Calculate Kelly criterion
+        def kelly_criterion(mean_return, variance):
+            """Calculate optimal Kelly fraction"""
+            if variance == 0:
+                return 0
+            return mean_return / variance
+
+        kelly_fraction = kelly_criterion(returns.mean(), returns.var())
+        kelly_fraction_adj = kelly_fraction * 0.5  # Conservative adjustment
+
+        # Maximum consecutive wins and losses
+        df['Win'] = df['Realized Profit'] > 0
+        win_streaks = []
+        loss_streaks = []
         current_streak = 1
 
-# Add the last streak
-if len(df) > 0:
-    if df['Win'].iloc[-1]:
-        win_streaks.append(current_streak)
-    else:
-        loss_streaks.append(current_streak)
+        for i in range(1, len(df)):
+            if df['Win'].iloc[i] == df['Win'].iloc[i-1]:
+                current_streak += 1
+            else:
+                if df['Win'].iloc[i-1]:
+                    win_streaks.append(current_streak)
+                else:
+                    loss_streaks.append(current_streak)
+                current_streak = 1
 
-max_consecutive_wins = max(win_streaks) if win_streaks else 0
-max_consecutive_losses = max(loss_streaks) if loss_streaks else 0
+        # Add the last streak
+        if len(df) > 0:
+            if df['Win'].iloc[-1]:
+                win_streaks.append(current_streak)
+            else:
+                loss_streaks.append(current_streak)
 
-# Payoff ratio
-avg_win = df[df['Realized Profit'] > 0]['Realized Profit'].mean() if winning_trades > 0 else 0
-avg_loss = abs(df[df['Realized Profit'] < 0]['Realized Profit'].mean()) if losing_trades > 0 else float('inf')
-payoff_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
+        max_consecutive_wins = max(win_streaks) if win_streaks else 0
+        max_consecutive_losses = max(loss_streaks) if loss_streaks else 0
 
-# Position sizing analysis
-if 'Quantity' in df.columns and 'Price' in df.columns:
-    df['Position_Size'] = df['Quantity'] * df['Price']
-    avg_position_size = df['Position_Size'].mean()
-    max_position_size = df['Position_Size'].max()
-    position_size_volatility = df['Position_Size'].std() / avg_position_size if avg_position_size > 0 else 0
+        # Payoff ratio
+        avg_win = df[df['Realized Profit'] > 0]['Realized Profit'].mean() if winning_trades > 0 else 0
+        avg_loss = abs(df[df['Realized Profit'] < 0]['Realized Profit'].mean()) if losing_trades > 0 else float('inf')
+        payoff_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
 
-# Display advanced trading metrics
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Kelly Criterion", f"{kelly_fraction:.4f}")
-    st.metric("Conservative Kelly (50%)", f"{kelly_fraction_adj:.4f}")
-with col2:
-    st.metric("Max Consecutive Wins", max_consecutive_wins)
-    st.metric("Max Consecutive Losses", max_consecutive_losses)
-with col3:
-    st.metric("Payoff Ratio (Avg Win/Avg Loss)", f"{payoff_ratio:.2f}")
-    st.metric("Win Rate", f"{win_rate:.2f}%")
+        # Position sizing analysis
+        if 'Quantity' in df.columns and 'Price' in df.columns:
+            df['Position_Size'] = df['Quantity'] * df['Price']
+            avg_position_size = df['Position_Size'].mean()
+            max_position_size = df['Position_Size'].max()
+            position_size_volatility = df['Position_Size'].std() / avg_position_size if avg_position_size > 0 else 0
 
-# Position sizing analysis
-if 'Position_Size' in df.columns:
-    st.subheader("Position Sizing Analysis")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Average Position Size", f"{avg_position_size:.2f}")
-        st.metric("Maximum Position Size", f"{max_position_size:.2f}")
-    with col2:
-        st.metric("Position Size Volatility", f"{position_size_volatility:.2f}")
-        st.metric("Max/Avg Position Size Ratio", f"{max_position_size/avg_position_size if avg_position_size > 0 else 0:.2f}")
+        # Display advanced trading metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Kelly Criterion", f"{kelly_fraction:.4f}")
+            st.metric("Conservative Kelly (50%)", f"{kelly_fraction_adj:.4f}")
+        with col2:
+            st.metric("Max Consecutive Wins", max_consecutive_wins)
+            st.metric("Max Consecutive Losses", max_consecutive_losses)
+        with col3:
+            st.metric("Payoff Ratio (Avg Win/Avg Loss)", f"{payoff_ratio:.2f}")
+            st.metric("Win Rate", f"{win_rate:.2f}%")
 
-# Final strategy assessment
-st.subheader("Strategy Assessment")
+        # Position sizing analysis
+        if 'Position_Size' in df.columns:
+            st.subheader("Position Sizing Analysis")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Average Position Size", f"{avg_position_size:.2f}")
+                st.metric("Maximum Position Size", f"{max_position_size:.2f}")
+            with col2:
+                st.metric("Position Size Volatility", f"{position_size_volatility:.2f}")
+                st.metric("Max/Avg Position Size Ratio", f"{max_position_size/avg_position_size if avg_position_size > 0 else 0:.2f}")
 
-# Calculate a composite score based on various metrics (0-100)
-sharpe_score = min(max(sharpe_ratio / 3 * 25, 0), 25)  # 0-25 points based on Sharpe
-consistency_score = min(25 * (wf_correlation + 1) / 2, 25) if has_walk_forward else 12.5  # 0-25 points
-profit_factor_score = min(max((profit_factor - 1) * 10, 0), 25)  # 0-25 points
-risk_score = min(max(25 - (max_drawdown / net_profit * 100 if net_profit > 0 else 25), 0), 25)  # 0-25 points
+        # Final strategy assessment
+        st.subheader("Strategy Assessment")
 
-composite_score = sharpe_score + consistency_score + profit_factor_score + risk_score
+        # Calculate a composite score based on various metrics (0-100)
+        sharpe_score = min(max(sharpe_ratio / 3 * 25, 0), 25)  # 0-25 points based on Sharpe
+        consistency_score = min(25 * (wf_correlation + 1) / 2, 25) if has_walk_forward else 12.5  # 0-25 points
+        profit_factor_score = min(max((profit_factor - 1) * 10, 0), 25)  # 0-25 points
+        risk_score = min(max(25 - (max_drawdown / net_profit * 100 if net_profit > 0 else 25), 0), 25)  # 0-25 points
 
-# Determine strategy assessment
-if composite_score >= 85:
-    assessment = "Excellent"
-    description = "This strategy demonstrates exceptional performance across multiple dimensions."
-elif composite_score >= 70:
-    assessment = "Very Good"
-    description = "This strategy shows strong performance with minimal weaknesses."
-elif composite_score >= 55:
-    assessment = "Good"
-    description = "This strategy performs well but has some areas for improvement."
-elif composite_score >= 40:
-    assessment = "Fair"
-    description = "This strategy has moderate performance with significant room for improvement."
-else:
-    assessment = "Needs Improvement"
-    description = "This strategy requires substantial revision to be viable long-term."
+        composite_score = sharpe_score + consistency_score + profit_factor_score + risk_score
 
-st.metric("Strategy Score", f"{composite_score:.2f}/100")
-st.write(f"Assessment: **{assessment}**")
-st.write(description)
+        # Determine strategy assessment
+        if composite_score >= 85:
+            assessment = "Excellent"
+            description = "This strategy demonstrates exceptional performance across multiple dimensions."
+        elif composite_score >= 70:
+            assessment = "Very Good"
+            description = "This strategy shows strong performance with minimal weaknesses."
+        elif composite_score >= 55:
+            assessment = "Good"
+            description = "This strategy performs well but has some areas for improvement."
+        elif composite_score >= 40:
+            assessment = "Fair"
+            description = "This strategy has moderate performance with significant room for improvement."
+        else:
+            assessment = "Needs Improvement"
+            description = "This strategy requires substantial revision to be viable long-term."
 
-# Provide specific recommendations
-st.subheader("Strategy Recommendations")
+        st.metric("Strategy Score", f"{composite_score:.2f}/100")
+        st.write(f"Assessment: **{assessment}**")
+        st.write(description)
 
-recommendations = []
+        # Provide specific recommendations
+        st.subheader("Strategy Recommendations")
 
-# Return-based recommendations
-if sharpe_ratio < 1:
-    recommendations.append("- Consider improving risk-adjusted returns, as the current Sharpe ratio is below the industry baseline of 1.0")
+        recommendations = []
 
-# Consistency recommendations
-if has_walk_forward and wf_correlation < 0.3:
-    recommendations.append("- The strategy shows poor consistency across different market periods. Consider more robust feature selection")
+        # Return-based recommendations
+        if sharpe_ratio < 1:
+            recommendations.append("- Consider improving risk-adjusted returns, as the current Sharpe ratio is below the industry baseline of 1.0")
 
-# Drawdown recommendations
-if max_drawdown > 0.5 * net_profit:
-    recommendations.append("- Implement stronger risk management as the maximum drawdown is a significant percentage of total profits")
+        # Consistency recommendations
+        if has_walk_forward and wf_correlation < 0.3:
+            recommendations.append("- The strategy shows poor consistency across different market periods. Consider more robust feature selection")
 
-# Win rate recommendations  
-if win_rate < 40:
-    recommendations.append("- The win rate is relatively low. Consider adjusting entry criteria or position management")
-elif payoff_ratio < 1:
-    recommendations.append("- Despite a reasonable win rate, the payoff ratio is unfavorable. Focus on letting winners run longer")
+        # Drawdown recommendations
+        if max_drawdown > 0.5 * net_profit:
+            recommendations.append("- Implement stronger risk management as the maximum drawdown is a significant percentage of total profits")
 
-# Regime recommendations
-if has_regime_analysis:
-    regime_sharpes = regime_stats['Sharpe'].dropna()
-    if regime_sharpes.min() < 0:
-        worst_regime = regime_sharpes.idxmin()
-        recommendations.append(f"- Consider adding filters to avoid trading during Regime {worst_regime}, where the strategy performs poorly")
+        # Win rate recommendations  
+        if win_rate < 40:
+            recommendations.append("- The win rate is relatively low. Consider adjusting entry criteria or position management")
+        elif payoff_ratio < 1:
+            recommendations.append("- Despite a reasonable win rate, the payoff ratio is unfavorable. Focus on letting winners run longer")
 
-# Always provide at least one recommendation
-if not recommendations:
-    recommendations.append("- Consider further optimization to improve risk-adjusted returns even though the strategy performs well")
+        # Regime recommendations
+        if has_regime_analysis:
+            regime_sharpes = regime_stats['Sharpe'].dropna()
+            if regime_sharpes.min() < 0:
+                worst_regime = regime_sharpes.idxmin()
+                recommendations.append(f"- Consider adding filters to avoid trading during Regime {worst_regime}, where the strategy performs poorly")
 
-for rec in recommendations:
-    st.write(rec)
+        # Always provide at least one recommendation
+        if not recommendations:
+            recommendations.append("- Consider further optimization to improve risk-adjusted returns even though the strategy performs well")
 
-# Download buttons for further analysis
-st.subheader("Download Analysis Results")
+        for rec in recommendations:
+            st.write(rec)
 
-# Prepare summary dataframe
-summary_df = pd.DataFrame({
-    'Metric': [
-        'Total Trades', 'Winning Trades', 'Losing Trades', 'Win Rate', 
-        'Net Profit', 'Profit Factor', 'Sharpe Ratio', 'Sortino Ratio',
-        'Max Drawdown', 'Calmar Ratio', 'Kelly Criterion', 'Skewness', 'Kurtosis'
-    ],
-    'Value': [
-        total_trades, winning_trades, losing_trades, f"{win_rate:.2f}%",
-        f"{net_profit:.8f}", f"{profit_factor:.2f}", f"{sharpe_ratio:.2f}", f"{sortino_ratio:.2f}",
-        f"{max_drawdown:.8f}", f"{calmar_ratio:.2f}", f"{kelly_fraction:.4f}", 
-        f"{returns_skew:.2f}", f"{returns_kurt:.2f}"
-    ]
-})
+        # Download buttons for further analysis
+        st.subheader("Download Analysis Results")
 
-# Create a downloadable CSV of summary metrics
-csv = summary_df.to_csv(index=False)
-st.download_button(
-    label="Download Summary Metrics CSV",
-    data=csv,
-    file_name="trading_analysis_summary.csv",
-    mime="text/csv",
-)
+        # Prepare summary dataframe
+        summary_df = pd.DataFrame({
+            'Metric': [
+                'Total Trades', 'Winning Trades', 'Losing Trades', 'Win Rate', 
+                'Net Profit', 'Profit Factor', 'Sharpe Ratio', 'Sortino Ratio',
+                'Max Drawdown', 'Calmar Ratio', 'Kelly Criterion', 'Skewness', 'Kurtosis'
+            ],
+            'Value': [
+                total_trades, winning_trades, losing_trades, f"{win_rate:.2f}%",
+                f"{net_profit:.8f}", f"{profit_factor:.2f}", f"{sharpe_ratio:.2f}", f"{sortino_ratio:.2f}",
+                f"{max_drawdown:.8f}", f"{calmar_ratio:.2f}", f"{kelly_fraction:.4f}", 
+                f"{returns_skew:.2f}", f"{returns_kurt:.2f}"
+            ]
+        })
 
-# If detailed analysis is available, offer enriched data download
-if has_regime_analysis or has_outlier_analysis or has_cluster_analysis:
-    # Add analysis columns to original data
-    enriched_df = df.copy()
-    
-    # Clean up and select only useful columns before download
-    download_cols = ['Time(UTC)', 'Price', 'Quantity', 'Amount', 'Realized Profit', 'Return']
-    
-    if has_outlier_analysis:
-        download_cols.append('Outlier')
-    if has_cluster_analysis:
-        download_cols.append('Cluster')
-    if has_regime_analysis:
-        download_cols.append('Regime')
-    
-    # Filter to available columns
-    available_cols = [col for col in download_cols if col in enriched_df.columns]
-    download_df = enriched_df[available_cols]
-    
-    # Create downloadable CSV
-    detailed_csv = download_df.to_csv(index=False)
-    st.download_button(
-        label="Download Enriched Trading Data",
-        data=detailed_csv,
-        file_name="enriched_trading_data.csv",
-        mime="text/csv",
-    )
+        # Create a downloadable CSV of summary metrics
+        csv = summary_df.to_csv(index=False)
+        st.download_button(
+            label="Download Summary Metrics CSV",
+            data=csv,
+            file_name="trading_analysis_summary.csv",
+            mime="text/csv",
+        )
+
+        # If detailed analysis is available, offer enriched data download
+        if has_regime_analysis or has_outlier_analysis or has_cluster_analysis:
+            # Add analysis columns to original data
+            enriched_df = df.copy()
+            
+            # Clean up and select only useful columns before download
+            download_cols = ['Time(UTC)', 'Price', 'Quantity', 'Amount', 'Realized Profit', 'Return']
+            
+            if has_outlier_analysis:
+                download_cols.append('Outlier')
+            if has_cluster_analysis:
+                download_cols.append('Cluster')
+            if has_regime_analysis:
+                download_cols.append('Regime')
+            
+            # Filter to available columns
+            available_cols = [col for col in download_cols if col in enriched_df.columns]
+            download_df = enriched_df[available_cols]
+            
+            # Create downloadable CSV
+            detailed_csv = download_df.to_csv(index=False)
+            st.download_button(
+                label="Download Enriched Trading Data",
+                data=detailed_csv,
+                file_name="enriched_trading_data.csv",
+                mime="text/csv",
+            )
 
     except Exception as e:
         st.error(f"Error during analysis: {e}")
