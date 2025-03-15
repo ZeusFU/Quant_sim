@@ -630,5 +630,305 @@ if has_cluster_analysis:
         
         fig, ax = plt.subplots(figsize=(10, 6))
         
-        # Plot each cluster
+       # Plot each cluster
         for cluster in sorted(df['Cluster'].unique()):
+            cluster_data = df[df['Cluster'] == cluster]
+            cluster_points = reduced_features[df['Cluster'] == cluster]
+            if cluster == -1:
+                # Noise points in black
+                ax.scatter(cluster_points[:, 0], cluster_points[:, 1], c='black', s=30, alpha=0.5, label='Noise')
+            else:
+                ax.scatter(cluster_points[:, 0], cluster_points[:, 1], s=30, alpha=0.7, 
+                           label=f'Cluster {cluster} (n={len(cluster_data)})')
+        
+        ax.set_title('Trade Clusters Visualization')
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.legend()
+        ax.grid(True)
+        st.pyplot(fig)
+
+# Display Monte Carlo simulation if available
+if has_monte_carlo:
+    st.subheader("Monte Carlo Simulation")
+    
+    # Plot simulation paths
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Plot a sample of simulation paths
+    for i in range(min(100, mc_simulations.shape[0])):
+        ax.plot(mc_simulations[i], alpha=0.1, color='blue')
+    
+    # Plot mean path
+    ax.plot(np.mean(mc_simulations, axis=0), color='red', linewidth=2, label='Mean Path')
+    
+    # Plot percentiles
+    ax.plot(np.percentile(mc_simulations, 5, axis=0), color='green', linewidth=1.5, label='5th Percentile')
+    ax.plot(np.percentile(mc_simulations, 95, axis=0), color='green', linewidth=1.5, label='95th Percentile')
+    
+    ax.set_title('Monte Carlo Simulation of Future Returns (1 Year)')
+    ax.set_xlabel('Trading Days')
+    ax.set_ylabel('Cumulative Return')
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+    
+    # Display Monte Carlo statistics
+    st.write("Monte Carlo Simulation Statistics (1 Year Horizon):")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Mean Projected Return", f"{mc_mean:.2%}")
+        st.metric("Median Projected Return", f"{mc_median:.2%}")
+    with col2:
+        st.metric("5th Percentile Return", f"{mc_5th_percentile:.2%}")
+        st.metric("95th Percentile Return", f"{mc_95th_percentile:.2%}")
+
+# Display Walk-Forward Analysis if available
+if has_walk_forward:
+    st.subheader("Walk-Forward Analysis")
+    
+    # Plot training vs testing Sharpe ratios
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    indices = np.arange(len(train_sharpes))
+    width = 0.35
+    
+    ax.bar(indices - width/2, train_sharpes, width, label='Training Window')
+    ax.bar(indices + width/2, test_sharpes, width, label='Testing Window')
+    
+    ax.set_title('Walk-Forward Analysis: Sharpe Ratio Consistency')
+    ax.set_xlabel('Window')
+    ax.set_ylabel('Sharpe Ratio')
+    ax.axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+    
+    # Display correlation and degradation
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Train-Test Correlation", f"{wf_correlation:.2f}")
+        correlation_interpretation = "Strong consistency" if wf_correlation > 0.7 else "Moderate consistency" if wf_correlation > 0.3 else "Poor consistency"
+        st.write(f"Interpretation: {correlation_interpretation}")
+    with col2:
+        st.metric("Performance Degradation", f"{wf_degradation:.2f}")
+        degradation_interpretation = "No degradation" if wf_degradation >= 0 else "Moderate degradation" if wf_degradation > -0.5 else "Severe degradation"
+        st.write(f"Interpretation: {degradation_interpretation}")
+
+# Advanced trading metrics
+st.subheader("Advanced Trading Insights")
+
+# Calculate Kelly criterion
+def kelly_criterion(mean_return, variance):
+    """Calculate optimal Kelly fraction"""
+    if variance == 0:
+        return 0
+    return mean_return / variance
+
+kelly_fraction = kelly_criterion(returns.mean(), returns.var())
+kelly_fraction_adj = kelly_fraction * 0.5  # Conservative adjustment
+
+# Maximum consecutive wins and losses
+df['Win'] = df['Realized Profit'] > 0
+win_streaks = []
+loss_streaks = []
+current_streak = 1
+
+for i in range(1, len(df)):
+    if df['Win'].iloc[i] == df['Win'].iloc[i-1]:
+        current_streak += 1
+    else:
+        if df['Win'].iloc[i-1]:
+            win_streaks.append(current_streak)
+        else:
+            loss_streaks.append(current_streak)
+        current_streak = 1
+
+# Add the last streak
+if len(df) > 0:
+    if df['Win'].iloc[-1]:
+        win_streaks.append(current_streak)
+    else:
+        loss_streaks.append(current_streak)
+
+max_consecutive_wins = max(win_streaks) if win_streaks else 0
+max_consecutive_losses = max(loss_streaks) if loss_streaks else 0
+
+# Payoff ratio
+avg_win = df[df['Realized Profit'] > 0]['Realized Profit'].mean() if winning_trades > 0 else 0
+avg_loss = abs(df[df['Realized Profit'] < 0]['Realized Profit'].mean()) if losing_trades > 0 else float('inf')
+payoff_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
+
+# Position sizing analysis
+if 'Quantity' in df.columns and 'Price' in df.columns:
+    df['Position_Size'] = df['Quantity'] * df['Price']
+    avg_position_size = df['Position_Size'].mean()
+    max_position_size = df['Position_Size'].max()
+    position_size_volatility = df['Position_Size'].std() / avg_position_size if avg_position_size > 0 else 0
+
+# Display advanced trading metrics
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Kelly Criterion", f"{kelly_fraction:.4f}")
+    st.metric("Conservative Kelly (50%)", f"{kelly_fraction_adj:.4f}")
+with col2:
+    st.metric("Max Consecutive Wins", max_consecutive_wins)
+    st.metric("Max Consecutive Losses", max_consecutive_losses)
+with col3:
+    st.metric("Payoff Ratio (Avg Win/Avg Loss)", f"{payoff_ratio:.2f}")
+    st.metric("Win Rate", f"{win_rate:.2f}%")
+
+# Position sizing analysis
+if 'Position_Size' in df.columns:
+    st.subheader("Position Sizing Analysis")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Average Position Size", f"{avg_position_size:.2f}")
+        st.metric("Maximum Position Size", f"{max_position_size:.2f}")
+    with col2:
+        st.metric("Position Size Volatility", f"{position_size_volatility:.2f}")
+        st.metric("Max/Avg Position Size Ratio", f"{max_position_size/avg_position_size if avg_position_size > 0 else 0:.2f}")
+
+# Final strategy assessment
+st.subheader("Strategy Assessment")
+
+# Calculate a composite score based on various metrics (0-100)
+sharpe_score = min(max(sharpe_ratio / 3 * 25, 0), 25)  # 0-25 points based on Sharpe
+consistency_score = min(25 * (wf_correlation + 1) / 2, 25) if has_walk_forward else 12.5  # 0-25 points
+profit_factor_score = min(max((profit_factor - 1) * 10, 0), 25)  # 0-25 points
+risk_score = min(max(25 - (max_drawdown / net_profit * 100 if net_profit > 0 else 25), 0), 25)  # 0-25 points
+
+composite_score = sharpe_score + consistency_score + profit_factor_score + risk_score
+
+# Determine strategy assessment
+if composite_score >= 85:
+    assessment = "Excellent"
+    description = "This strategy demonstrates exceptional performance across multiple dimensions."
+elif composite_score >= 70:
+    assessment = "Very Good"
+    description = "This strategy shows strong performance with minimal weaknesses."
+elif composite_score >= 55:
+    assessment = "Good"
+    description = "This strategy performs well but has some areas for improvement."
+elif composite_score >= 40:
+    assessment = "Fair"
+    description = "This strategy has moderate performance with significant room for improvement."
+else:
+    assessment = "Needs Improvement"
+    description = "This strategy requires substantial revision to be viable long-term."
+
+st.metric("Strategy Score", f"{composite_score:.2f}/100")
+st.write(f"Assessment: **{assessment}**")
+st.write(description)
+
+# Provide specific recommendations
+st.subheader("Strategy Recommendations")
+
+recommendations = []
+
+# Return-based recommendations
+if sharpe_ratio < 1:
+    recommendations.append("- Consider improving risk-adjusted returns, as the current Sharpe ratio is below the industry baseline of 1.0")
+
+# Consistency recommendations
+if has_walk_forward and wf_correlation < 0.3:
+    recommendations.append("- The strategy shows poor consistency across different market periods. Consider more robust feature selection")
+
+# Drawdown recommendations
+if max_drawdown > 0.5 * net_profit:
+    recommendations.append("- Implement stronger risk management as the maximum drawdown is a significant percentage of total profits")
+
+# Win rate recommendations  
+if win_rate < 40:
+    recommendations.append("- The win rate is relatively low. Consider adjusting entry criteria or position management")
+elif payoff_ratio < 1:
+    recommendations.append("- Despite a reasonable win rate, the payoff ratio is unfavorable. Focus on letting winners run longer")
+
+# Regime recommendations
+if has_regime_analysis:
+    regime_sharpes = regime_stats['Sharpe'].dropna()
+    if regime_sharpes.min() < 0:
+        worst_regime = regime_sharpes.idxmin()
+        recommendations.append(f"- Consider adding filters to avoid trading during Regime {worst_regime}, where the strategy performs poorly")
+
+# Always provide at least one recommendation
+if not recommendations:
+    recommendations.append("- Consider further optimization to improve risk-adjusted returns even though the strategy performs well")
+
+for rec in recommendations:
+    st.write(rec)
+
+# Download buttons for further analysis
+st.subheader("Download Analysis Results")
+
+# Prepare summary dataframe
+summary_df = pd.DataFrame({
+    'Metric': [
+        'Total Trades', 'Winning Trades', 'Losing Trades', 'Win Rate', 
+        'Net Profit', 'Profit Factor', 'Sharpe Ratio', 'Sortino Ratio',
+        'Max Drawdown', 'Calmar Ratio', 'Kelly Criterion', 'Skewness', 'Kurtosis'
+    ],
+    'Value': [
+        total_trades, winning_trades, losing_trades, f"{win_rate:.2f}%",
+        f"{net_profit:.8f}", f"{profit_factor:.2f}", f"{sharpe_ratio:.2f}", f"{sortino_ratio:.2f}",
+        f"{max_drawdown:.8f}", f"{calmar_ratio:.2f}", f"{kelly_fraction:.4f}", 
+        f"{returns_skew:.2f}", f"{returns_kurt:.2f}"
+    ]
+})
+
+# Create a downloadable CSV of summary metrics
+csv = summary_df.to_csv(index=False)
+st.download_button(
+    label="Download Summary Metrics CSV",
+    data=csv,
+    file_name="trading_analysis_summary.csv",
+    mime="text/csv",
+)
+
+# If detailed analysis is available, offer enriched data download
+if has_regime_analysis or has_outlier_analysis or has_cluster_analysis:
+    # Add analysis columns to original data
+    enriched_df = df.copy()
+    
+    # Clean up and select only useful columns before download
+    download_cols = ['Time(UTC)', 'Price', 'Quantity', 'Amount', 'Realized Profit', 'Return']
+    
+    if has_outlier_analysis:
+        download_cols.append('Outlier')
+    if has_cluster_analysis:
+        download_cols.append('Cluster')
+    if has_regime_analysis:
+        download_cols.append('Regime')
+    
+    # Filter to available columns
+    available_cols = [col for col in download_cols if col in enriched_df.columns]
+    download_df = enriched_df[available_cols]
+    
+    # Create downloadable CSV
+    detailed_csv = download_df.to_csv(index=False)
+    st.download_button(
+        label="Download Enriched Trading Data",
+        data=detailed_csv,
+        file_name="enriched_trading_data.csv",
+        mime="text/csv",
+    )
+
+    except Exception as e:
+        st.error(f"Error during analysis: {e}")
+        st.write("Please check your data format and try again.")
+else:
+    st.info("Please upload a trading history CSV file to begin analysis.")
+    
+    # Show sample format
+    st.subheader("Expected CSV Format")
+    sample_data = {
+        'Time(UTC)': ['2023-01-01 12:34:56', '2023-01-02 14:25:36'],
+        'Price': [50000.0, 51000.0],
+        'Quantity': [0.1, 0.05],
+        'Amount': [5000.0, 2550.0],
+        'Fee': [10.0, 5.0],
+        'Realized Profit': [100.0, -50.0]
+    }
+    st.dataframe(pd.DataFrame(sample_data))
+    
+    st.write("Note: Additional columns will be used if available but are not required.")
