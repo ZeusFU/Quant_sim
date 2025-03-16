@@ -34,119 +34,43 @@ if uploaded_file is not None:
         st.subheader("Preview of Uploaded Data")
         st.dataframe(df.head())
         
-        # Create column mapping interface
-        st.subheader("Map Your Columns")
-        st.write("Please map your CSV columns to the required data fields")
+        # Data validation and conversion
+        required_columns = ['Time(UTC)', 'Price', 'Quantity', 'Amount', 'Fee', 'Realized Profit']
+        missing_columns = [col for col in required_columns if col not in df.columns]
         
-        # Get all available columns
-        available_columns = df.columns.tolist()
+        if missing_columns:
+            st.error(f"Missing required columns: {', '.join(missing_columns)}. Please ensure your file has the correct format.")
+            st.stop()
         
-        # Define the essential data fields needed for analysis
-        required_data_fields = {
-            'timestamp': 'Time column (entry or exit time)',
-            'price': 'Price column (entry or exit)',
-            'quantity': 'Volume or quantity of the asset',
-            'profit': 'Profit column (if available)'
-        }
-        
-        # Create dropdown selectors for each required field
-        column_mapping = {}
-        for field_key, field_description in required_data_fields.items():
-            # Add "None" option for optional fields
-            column_options = ["None"] + available_columns
-            default_value = next((col for col in available_columns if field_key.lower() in col.lower()), column_options[0])
+        # Convert columns to appropriate data types with robust error handling
+        try:
+            df['Time(UTC)'] = pd.to_datetime(df['Time(UTC)'])
+            df['Price'] = pd.to_numeric(df['Price'], errors='coerce')
+            df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
+            df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
             
-            column_mapping[field_key] = st.selectbox(
-                f"Select {field_description}:", 
-                column_options,
-                index=column_options.index(default_value)
-            )
-        
-        # Add option for profit calculation method if profit column is not available
-        calculate_profit = False
-        if column_mapping['profit'] == "None":
-            st.subheader("Profit Calculation")
-            has_entry_exit = st.checkbox("I have both entry and exit prices in my data")
+            # Handle different fee formats
+            if df['Fee'].dtype == object:
+                df['Fee'] = df['Fee'].str.replace(r'[^\d.-]', '', regex=True)
+            df['Fee'] = pd.to_numeric(df['Fee'], errors='coerce')
             
-            if has_entry_exit:
-                calculate_profit = True
-                entry_price_col = st.selectbox("Select entry price column:", available_columns)
-                exit_price_col = st.selectbox("Select exit price column:", available_columns)
-                direction_col = st.selectbox("Select trade direction column (if available):", ["None"] + available_columns)
+            df['Realized Profit'] = pd.to_numeric(df['Realized Profit'], errors='coerce')
+            
+            # Check for and handle NaN values
+            if df.isna().any().any():
+                st.warning(f"Found {df.isna().sum().sum()} missing values in the data. These will be handled appropriately in the analysis.")
+                # Fill NaN values where appropriate
+                df['Fee'] = df['Fee'].fillna(0)
+                df = df.dropna(subset=['Price', 'Quantity', 'Amount', 'Realized Profit'])
                 
-                if direction_col == "None":
-                    # Ask for a default direction if no direction column
-                    default_direction = st.radio("Default trade direction:", ["Long", "Short"])
-                    
-        # Create a standardized dataframe based on the mapping
-        standard_df = pd.DataFrame()
-        
-        # Handle timestamp
-        if column_mapping['timestamp'] != "None":
-            standard_df['Time(UTC)'] = pd.to_datetime(df[column_mapping['timestamp']], errors='coerce')
-        elif 'Entry Time' in df.columns and 'Exit Time' in df.columns:
-            # If we have both entry and exit times, use exit time as the transaction time
-            standard_df['Time(UTC)'] = pd.to_datetime(df['Exit Time'], errors='coerce')
-        
-        # Handle price
-        if column_mapping['price'] != "None":
-            standard_df['Price'] = pd.to_numeric(df[column_mapping['price']], errors='coerce')
-        elif 'Entry Price' in df.columns and 'Exit Price' in df.columns:
-            # If there are separate entry/exit prices, we can calculate average price
-            standard_df['Price'] = (pd.to_numeric(df['Entry Price'], errors='coerce') + 
-                                  pd.to_numeric(df['Exit Price'], errors='coerce')) / 2
-        
-        # Handle quantity
-        if column_mapping['quantity'] != "None":
-            standard_df['Quantity'] = pd.to_numeric(df[column_mapping['quantity']], errors='coerce')
-        elif 'Volume' in df.columns:
-            standard_df['Quantity'] = pd.to_numeric(df['Volume'], errors='coerce')
-        
-        # Calculate Amount if not directly provided
-        standard_df['Amount'] = standard_df['Price'] * standard_df['Quantity']
-        
-        # Handle fees (set to 0 if not provided)
-        standard_df['Fee'] = 0
-        
-        # Handle profit calculation
-        if column_mapping['profit'] != "None":
-            standard_df['Realized Profit'] = pd.to_numeric(df[column_mapping['profit']], errors='coerce')
-        elif calculate_profit:
-            # Calculate profit based on entry/exit prices
-            entry_prices = pd.to_numeric(df[entry_price_col], errors='coerce')
-            exit_prices = pd.to_numeric(df[exit_price_col], errors='coerce')
-            quantities = standard_df['Quantity']
-            
-            if direction_col != "None":
-                # Use direction column to determine if long or short
-                is_long = df[direction_col].str.lower().isin(['long', 'buy', '1', 'true'])
-                is_short = df[direction_col].str.lower().isin(['short', 'sell', '-1', 'false'])
+            # Verify data integrity
+            if len(df) == 0:
+                st.error("No valid data remains after cleaning. Please check your input file.")
+                st.stop()
                 
-                # Calculate profit accordingly
-                standard_df['Realized Profit'] = np.where(
-                    is_long, 
-                    (exit_prices - entry_prices) * quantities,
-                    (entry_prices - exit_prices) * quantities
-                )
-            else:
-                # Use default direction
-                if default_direction == "Long":
-                    standard_df['Realized Profit'] = (exit_prices - entry_prices) * quantities
-                else:
-                    standard_df['Realized Profit'] = (entry_prices - exit_prices) * quantities
-        else:
-            # If we can't calculate profit, set to 0
-            standard_df['Realized Profit'] = 0
-        
-        # Check for missing values
-        if standard_df.isna().any().any():
-            st.warning(f"Found {standard_df.isna().sum().sum()} missing values in the mapped data. These will be handled appropriately.")
-            # Fill NaN values where appropriate
-            standard_df['Fee'] = standard_df['Fee'].fillna(0)
-            standard_df = standard_df.dropna(subset=['Price', 'Quantity', 'Amount', 'Realized Profit'])
-        
-        # Replace the original dataframe with our standardized one
-        df = standard_df.copy()
+        except Exception as e:
+            st.error(f"Error converting data types: {e}. Please check your file format.")
+            st.stop()
 
         # Add defensive calculation for returns
         df['Amount_Safe'] = df['Amount'].apply(lambda x: x if x != 0 else 1e-10)
@@ -1012,11 +936,11 @@ if uploaded_file is not None:
         st.error(f"Error during analysis: {e}")
         st.write("Please check your data format and try again.")
 else:
-    # Show sample format with flexible columns
-    st.write("You can upload CSV files with various column names. The application will allow you to map your columns to the required fields.")
-    st.write("Example formats that can be handled:")
+    st.info("Please upload a trading history CSV file to begin analysis.")
     
-    sample_format1 = {
+    # Show sample format
+    st.subheader("Expected CSV Format")
+    sample_data = {
         'Time(UTC)': ['2023-01-01 12:34:56', '2023-01-02 14:25:36'],
         'Price': [50000.0, 51000.0],
         'Quantity': [0.1, 0.05],
@@ -1024,18 +948,6 @@ else:
         'Fee': [10.0, 5.0],
         'Realized Profit': [100.0, -50.0]
     }
+    st.dataframe(pd.DataFrame(sample_data))
     
-    sample_format2 = {
-        'Asset': ['BTC', 'ETH'],
-        'Entry Price': [48000.0, 3000.0],
-        'Exit Price': [50000.0, 2900.0],
-        'Volume': [0.1, 2.0],
-        'Entry Time': ['2023-01-01 10:00:00', '2023-01-02 09:30:00'],
-        'Exit Time': ['2023-01-01 12:34:56', '2023-01-02 14:25:36']
-    }
-    
-    tab1, tab2 = st.tabs(["Standard Format", "Alternative Format"])
-    with tab1:
-        st.dataframe(pd.DataFrame(sample_format1))
-    with tab2:
-        st.dataframe(pd.DataFrame(sample_format2))
+    st.write("Note: Additional columns will be used if available but are not required.")
