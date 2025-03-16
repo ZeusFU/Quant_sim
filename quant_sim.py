@@ -196,8 +196,15 @@ if uploaded_file is not None:
                 daily_returns['Return_Scaled'] = daily_returns['Return'] * 100  # Scale for numerical stability
                 
                 # Fit Markov switching model with 2 regimes
-                mod = MarkovRegression(daily_returns['Return_Scaled'].values, k_regimes=2, trend='c', switching_variance=True)
-                res = mod.fit(disp=False)
+                try:
+                    mod = MarkovRegression(daily_returns['Return_Scaled'].values, k_regimes=2, trend='c', switching_variance=True)
+                    res = mod.fit(disp=False, maxiter=1000)  # Add iteration limit
+                    # Check convergence
+                    if not res.success:
+                        st.warning("Markov regime detection did not fully converge. Results may be unstable.")
+                except Exception as e:
+                    st.warning(f"Could not fit Markov model: {e}")
+                    has_regime_analysis = False
                 
                 # Get smoothed probabilities
                 smoothed_probs = res.smoothed_marginal_probabilities
@@ -297,11 +304,19 @@ if uploaded_file is not None:
         
         # Bootstrap analysis for confidence intervals
         def bootstrap_metric(data, metric_func, n_bootstrap=1000):
-            bootstrap_results = []
-            for _ in range(n_bootstrap):
+        bootstrap_results = []
+        for _ in range(n_bootstrap):
+            try:
                 sample = data.sample(frac=1.0, replace=True)
-                bootstrap_results.append(metric_func(sample))
-            return np.percentile(bootstrap_results, [2.5, 50, 97.5])
+                result = metric_func(sample)
+                if np.isfinite(result):  # Check for nan/inf
+                    bootstrap_results.append(result)
+            except Exception:
+                continue
+    
+        if not bootstrap_results:
+            return [np.nan, np.nan, np.nan]
+        return np.percentile(bootstrap_results, [2.5, 50, 97.5])
         
         # Define metric functions
         def sharpe_func(data):
@@ -373,6 +388,7 @@ if uploaded_file is not None:
         # Walk-forward analysis
         def walk_forward_analysis(returns, window_size=30, step_size=10):
             """Perform walk-forward analysis to test strategy consistency"""
+            # Lines 355-356: Walk-forward analysis early return
             if len(returns) < window_size * 2:
                 return None, None
                 
