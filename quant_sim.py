@@ -302,19 +302,19 @@ if uploaded_file is not None:
         
         # Bootstrap analysis for confidence intervals
         def bootstrap_metric(data, metric_func, n_bootstrap=1000):
-        bootstrap_results = []
-        for _ in range(n_bootstrap):
-            try:
-                sample = data.sample(frac=1.0, replace=True)
-                result = metric_func(sample)
-                if np.isfinite(result):  # Check for nan/inf
-                    bootstrap_results.append(result)
-            except Exception:
-                continue
-    
-        if not bootstrap_results:
-            return [np.nan, np.nan, np.nan]
-        return np.percentile(bootstrap_results, [2.5, 50, 97.5])
+            bootstrap_results = []
+            for _ in range(n_bootstrap):
+                try:
+                    sample = data.sample(frac=1.0, replace=True)
+                    result = metric_func(sample)
+                    if np.isfinite(result):  # Check for nan/inf
+                        bootstrap_results.append(result)
+                except Exception:
+                    continue
+        
+            if not bootstrap_results:
+                return [np.nan, np.nan, np.nan]
+            return np.percentile(bootstrap_results, [2.5, 50, 97.5])
         
         # Define metric functions
         def sharpe_func(data):
