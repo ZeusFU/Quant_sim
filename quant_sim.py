@@ -198,7 +198,7 @@ if uploaded_file is not None:
                     mod = MarkovRegression(daily_returns['Return_Scaled'].values, k_regimes=2, trend='c', switching_variance=True)
                     res = mod.fit(disp=False, maxiter=1000)  # Add iteration limit
                     # Check convergence
-                    if not res.success:
+                    if not hasattr(res, 'params') or np.isnan(res.params).any():
                         st.warning("Markov regime detection did not fully converge. Results may be unstable.")
                 except Exception as e:
                     st.warning(f"Could not fit Markov model: {e}")
@@ -212,9 +212,15 @@ if uploaded_file is not None:
                 daily_returns['Regime'] = np.where(regime_1_prob > 0.5, 0, 1)
                 
                 # Map regimes to the original trades
-                regime_map = dict(zip(daily_returns['Date'], daily_returns['Regime']))
-                df['Regime'] = df['Time(UTC)'].dt.date.map(lambda x: regime_map.get(pd.Timestamp(x), np.nan))
-                
+                # Fix the regime mapping
+                try:
+                    # Make sure dates are in the correct format for mapping
+                    regime_map = dict(zip(daily_returns['Date'].dt.date.astype(str), daily_returns['Regime']))
+                    df['Regime'] = df['Time(UTC)'].dt.date.astype(str).map(regime_map)
+                except Exception as e:
+                    st.warning(f"Error mapping regimes to trades: {e}")
+                    # Use a safer fallback
+                    df['Regime'] = np.nan
                 # Calculate metrics by regime
                 regime_stats = df.groupby('Regime').agg({
                     'Realized Profit': ['count', 'mean', 'sum'],
